@@ -1,0 +1,42 @@
+# .github/workflows/fno_scanner.yml
+#
+# Runs the FNO scanner on weekdays during Indian market hours.
+# GitHub Actions is FREE for public repos (2000 min/month for private).
+#
+# Schedule: Runs at 9:15 AM IST = 3:45 AM UTC
+# The Python script itself loops every 3 minutes until 3:30 PM IST.
+
+name: FNO Options Scanner
+
+on:
+  schedule:
+    # 3:45 AM UTC = 9:15 AM IST (Mon–Fri)
+    - cron: '45 3 * * 1-5'
+  workflow_dispatch:   # Also allows manual trigger from GitHub UI
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 375   # 6h 15min = covers full market session
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install kiteconnect pandas numpy requests pytz
+
+      - name: Run FNO Scanner
+        env:
+          KITE_API_KEY:       ${{ secrets.KITE_API_KEY }}
+          KITE_ACCESS_TOKEN:  ${{ secrets.KITE_ACCESS_TOKEN }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID:   ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          python fno_scanner.py
