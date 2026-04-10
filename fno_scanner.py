@@ -309,26 +309,19 @@ def scan_once(universe_df: pd.DataFrame) -> list:
         if np.isnan(rsi) or rsi <= 60:
             continue
 
-        # Filter 3 — Volume > 20-period MA
-        vol_ok, cur_vol, ma_vol = volume_above_ma(volumes, VOLUME_MA_PERIOD)
-        if not vol_ok:
-            continue
-
         vwap_gap_pct = round(((cur_price - vwap) / vwap) * 100, 2)
 
         matches.append({
-            "symbol":        symbol,
-            "name":          name,
-            "type":          opt_type,
-            "strike":        strike,
-            "moneyness":     moneyness_label(strike, spot, opt_type),
-            "spot":          round(spot, 2),
-            "price":         cur_price,
-            "vwap":          vwap,
-            "vwap_gap_pct":  vwap_gap_pct,
-            "rsi":           rsi,
-            "volume":        cur_vol,
-            "vol_ma20":      ma_vol,
+            "symbol":    symbol,
+            "name":      name,
+            "type":      opt_type,
+            "strike":    strike,
+            "moneyness": moneyness_label(strike, spot, opt_type),
+            "spot":      round(spot, 2),
+            "price":     cur_price,
+            "vwap":      vwap,
+            "vwap_gap_pct": vwap_gap_pct,
+            "rsi":       rsi,
         })
 
     log.info(f"Scan complete — {len(matches)} match(es).")
@@ -352,7 +345,7 @@ def format_alert(matches: list) -> str:
             f"   💹 Spot: ₹{m['spot']:,.2f}\n"
             f"   💲 Price: ₹{m['price']:.2f}\n"
             f"   📊 VWAP:  ₹{m['vwap']:.2f}  (Price {v_sign}{m['vwap_gap_pct']}% above VWAP)\n"
-            f"   📈 RSI: {m['rsi']}  |  Vol: {m['volume']:,.0f}  (MA20: {m['vol_ma20']:,.0f})\n"
+            f"   📈 RSI: {m['rsi']}\n"
         )
 
     return "\n".join(lines)
