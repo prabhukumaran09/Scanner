@@ -27,7 +27,7 @@ from kiteconnect import KiteConnect
 
 # ── Logging ───────────────────────────────────────────────────────────────────
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.DEBUG,
     format="%(asctime)s [%(levelname)s] %(message)s",
     handlers=[logging.StreamHandler()]
 )
@@ -292,7 +292,8 @@ def scan_once(universe_df: pd.DataFrame) -> list:
         spot     = float(row["spot_price"])
 
         df = fetch_candles(token)
-        if df.empty or len(df) < VOLUME_MA_PERIOD + 1:
+        if df.empty or len(df) < RSI_PERIOD + 1:
+            log.debug(f"{symbol}: skipped — only {len(df)} candles (need {RSI_PERIOD + 1})")
             continue
 
         closes  = df["close"]
@@ -302,11 +303,13 @@ def scan_once(universe_df: pd.DataFrame) -> list:
         cur_price = float(closes.iloc[-1])
         vwap = compute_vwap(df)
         if np.isnan(vwap) or cur_price <= vwap:
+            log.debug(f"{symbol}: FAIL VWAP — price={cur_price:.2f} vwap={vwap:.2f} candles={len(df)}")
             continue
 
         # Filter 2 — RSI > 60
         rsi = compute_rsi(closes, RSI_PERIOD)
         if np.isnan(rsi) or rsi <= 60:
+            log.debug(f"{symbol}: FAIL RSI — rsi={rsi:.1f} price={cur_price:.2f} vwap={vwap:.2f}")
             continue
 
         vwap_gap_pct = round(((cur_price - vwap) / vwap) * 100, 2)
@@ -375,6 +378,14 @@ def main():
 
     universe_df           = build_scan_universe(nfo_df, equity_df)
     last_universe_refresh = datetime.now(IST)
+
+    # ── Debug: log whether LODHA is in the universe ──────────────────────
+    lodha_rows = universe_df[universe_df["name"] == "LODHA"] if not universe_df.empty else pd.DataFrame()
+    if lodha_rows.empty:
+        log.warning("DEBUG: LODHA not found in scan universe — check if it is in NFO instruments and spot price was fetched.")
+    else:
+        for _, r in lodha_rows.iterrows():
+            log.info(f"DEBUG: LODHA in universe — {r['tradingsymbol']} strike={r['strike']} spot={r['spot_price']}")
 
     while True:
         now_ist = datetime.now(IST)
