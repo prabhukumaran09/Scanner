@@ -242,7 +242,7 @@ def volume_above_ma(volumes: pd.Series, period: int = 20) -> tuple:
 # ─────────────────────────────────────────────────────────────────────────────
 # CANDLE FETCH
 # ─────────────────────────────────────────────────────────────────────────────
-def fetch_candles(instrument_token: int, interval: str = "3minute") -> pd.DataFrame:
+def fetch_candles(instrument_token: int, interval: str = "5minute") -> pd.DataFrame:
     today = date.today()
     try:
         candles = kite.historical_data(
@@ -298,28 +298,23 @@ def scan_once(universe_df: pd.DataFrame) -> list:
         closes  = df["close"]
         volumes = df["volume"]
 
-        # Filter 1 — Price rising
-        rising, cur_price, prev_price = price_is_rising(closes)
-        if not rising:
-            continue
-
-        # Filter 2 — Price above VWAP
+        # Filter 1 — Price above VWAP
+        cur_price = float(closes.iloc[-1])
         vwap = compute_vwap(df)
         if np.isnan(vwap) or cur_price <= vwap:
             continue
 
-        # Filter 3 — RSI > 60
+        # Filter 2 — RSI > 60
         rsi = compute_rsi(closes, RSI_PERIOD)
         if np.isnan(rsi) or rsi <= 60:
             continue
 
-        # Filter 4 — Volume > 20-period MA
+        # Filter 3 — Volume > 20-period MA
         vol_ok, cur_vol, ma_vol = volume_above_ma(volumes, VOLUME_MA_PERIOD)
         if not vol_ok:
             continue
 
-        price_chg_pct = round(((cur_price - prev_price) / prev_price) * 100, 2)
-        vwap_gap_pct  = round(((cur_price - vwap) / vwap) * 100, 2)
+        vwap_gap_pct = round(((cur_price - vwap) / vwap) * 100, 2)
 
         matches.append({
             "symbol":        symbol,
@@ -329,8 +324,6 @@ def scan_once(universe_df: pd.DataFrame) -> list:
             "moneyness":     moneyness_label(strike, spot, opt_type),
             "spot":          round(spot, 2),
             "price":         cur_price,
-            "prev_price":    prev_price,
-            "price_chg_pct": price_chg_pct,
             "vwap":          vwap,
             "vwap_gap_pct":  vwap_gap_pct,
             "rsi":           rsi,
@@ -351,14 +344,13 @@ def format_alert(matches: list) -> str:
     for m in matches:
         emoji     = "🟢" if m["type"] == "CE" else "🔴"
         money_tag = {"ATM": "🎯", "ITM": "💰", "OTM": "🎲"}.get(m["moneyness"], "")
-        p_sign    = "+" if m["price_chg_pct"] >= 0 else ""
-        v_sign    = "+" if m["vwap_gap_pct"]  >= 0 else ""
+        v_sign    = "+" if m["vwap_gap_pct"] >= 0 else ""
 
         lines.append(
             f"{emoji} <b>{m['symbol']}</b>  {money_tag} {m['moneyness']}\n"
             f"   📌 Stock: <b>{m['name']}</b>  |  {m['type']}  |  Strike: ₹{m['strike']:,.0f}\n"
             f"   💹 Spot: ₹{m['spot']:,.2f}\n"
-            f"   💲 Price: ₹{m['price']:.2f}  ({p_sign}{m['price_chg_pct']}%)\n"
+            f"   💲 Price: ₹{m['price']:.2f}\n"
             f"   📊 VWAP:  ₹{m['vwap']:.2f}  (Price {v_sign}{m['vwap_gap_pct']}% above VWAP)\n"
             f"   📈 RSI: {m['rsi']}  |  Vol: {m['volume']:,.0f}  (MA20: {m['vol_ma20']:,.0f})\n"
         )
@@ -381,8 +373,8 @@ def main():
     log.info("FNO Scanner v2 started.")
     send_telegram(
         "✅ <b>FNO Scanner v2 Started</b>\n"
-        "Scanning <b>ATM + nearest ITM/OTM</b> strikes every 3 min.\n"
-        "Filters: Price Rising · Price &gt; VWAP · RSI &gt; 60 · Vol &gt; MA20"
+        "Scanning <b>ATM only</b> strikes every 5 min.\n"
+        "Filters: Price &gt; VWAP · RSI &gt; 60 · Vol &gt; MA20"
     )
 
     nfo_df    = load_all_nfo_instruments()
@@ -390,7 +382,6 @@ def main():
 
     universe_df           = build_scan_universe(nfo_df, equity_df)
     last_universe_refresh = datetime.now(IST)
-    alerted_symbols: set  = set()
 
     while True:
         now_ist = datetime.now(IST)
@@ -401,7 +392,6 @@ def main():
             nfo_df              = load_all_nfo_instruments()
             universe_df         = build_scan_universe(nfo_df, equity_df)
             last_universe_refresh = now_ist
-            alerted_symbols.clear()
 
         if not is_market_open():
             now_ist = datetime.now(IST)
@@ -420,15 +410,12 @@ def main():
             time.sleep(SCAN_INTERVAL)
             continue
 
-        matches     = scan_once(universe_df)
-        new_matches = [m for m in matches if m["symbol"] not in alerted_symbols]
+        matches = scan_once(universe_df)
 
-        if new_matches:
-            for i in range(0, len(new_matches), 8):
-                batch = new_matches[i:i + 8]
+        if matches:
+            for i in range(0, len(matches), 8):
+                batch = matches[i:i + 8]
                 send_telegram(format_alert(batch))
-            for m in new_matches:
-                alerted_symbols.add(m["symbol"])
 
         log.info(f"Sleeping {SCAN_INTERVAL}s until next scan...")
         time.sleep(SCAN_INTERVAL)
