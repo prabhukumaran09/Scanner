@@ -41,7 +41,7 @@ TELEGRAM_CHAT_ID  = os.environ["TELEGRAM_CHAT_ID"]
 
 RSI_PERIOD        = 14
 VOLUME_MA_PERIOD  = 20
-SCAN_INTERVAL     = 180          # seconds
+SCAN_INTERVAL     = 300          # seconds (5 minutes)
 MARKET_OPEN       = dtime(9, 15)
 MARKET_CLOSE      = dtime(15, 30)
 IST               = pytz.timezone("Asia/Kolkata")
@@ -112,7 +112,7 @@ def load_equity_instruments() -> pd.DataFrame:
     return df
 
 # ─────────────────────────────────────────────────────────────────────────────
-# STRIKE SELECTION — ATM + nearest ITM + nearest OTM
+# STRIKE SELECTION — ATM only
 # ─────────────────────────────────────────────────────────────────────────────
 def select_strikes(
     options_df: pd.DataFrame,
@@ -120,14 +120,8 @@ def select_strikes(
     opt_type: str           # "CE" or "PE"
 ) -> pd.DataFrame:
     """
-    For a given underlying's options of one type (CE or PE), return
-    only the 3 relevant strikes:
-      - ATM  : strike closest to spot
-      - ITM  : one strike inside the money
-      - OTM  : one strike outside the money
-
-    For CE:  ITM = ATM - 1 step,  OTM = ATM + 1 step
-    For PE:  ITM = ATM + 1 step,  OTM = ATM - 1 step
+    Returns only the ATM strike (closest to spot price) for the given
+    option type. One contract per underlying per type (CE/PE).
     """
     df = options_df[options_df["instrument_type"] == opt_type].copy()
     if df.empty:
@@ -137,24 +131,11 @@ def select_strikes(
     if not strikes:
         return pd.DataFrame()
 
-    # ATM = strike closest to spot
+    # ATM = strike closest to spot price
     atm_strike = min(strikes, key=lambda s: abs(s - spot_price))
-    atm_idx    = strikes.index(atm_strike)
 
-    if opt_type == "CE":
-        itm_idx = atm_idx - 1   # lower strike = ITM for calls
-        otm_idx = atm_idx + 1   # higher strike = OTM for calls
-    else:
-        itm_idx = atm_idx + 1   # higher strike = ITM for puts
-        otm_idx = atm_idx - 1   # lower strike = OTM for puts
-
-    selected_strikes = {atm_strike}
-    if 0 <= itm_idx < len(strikes):
-        selected_strikes.add(strikes[itm_idx])
-    if 0 <= otm_idx < len(strikes):
-        selected_strikes.add(strikes[otm_idx])
-
-    return df[df["strike"].isin(selected_strikes)]
+    # ATM only — return just the single closest strike
+    return df[df["strike"] == atm_strike]
 
 
 def build_scan_universe(
