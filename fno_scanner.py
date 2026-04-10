@@ -90,8 +90,24 @@ def load_equity_instruments() -> pd.DataFrame:
     """Load NSE equity instruments for LTP lookup of underlyings."""
     instruments = kite.instruments("NSE")
     df = pd.DataFrame(instruments)
-    df = df[df["series"] == "EQ"][["tradingsymbol", "instrument_token"]].copy()
+    log.info(f"NSE instrument columns: {list(df.columns)}")   # log once for debugging
+
+    # Filter to plain equity shares only — try multiple column strategies
+    # since Kite's column names can vary slightly across API versions
+    if "instrument_type" in df.columns:
+        df = df[df["instrument_type"] == "EQ"]
+    elif "series" in df.columns:
+        df = df[df["series"] == "EQ"]
+    else:
+        # Fallback: keep all NSE instruments and deduplicate by tradingsymbol
+        # The NFO merge will naturally limit to only valid underlyings
+        log.warning("Neither 'instrument_type' nor 'series' column found in NSE instruments. "
+                    "Using all NSE instruments as fallback.")
+
+    df = df[["tradingsymbol", "instrument_token"]].copy()
     df = df.rename(columns={"tradingsymbol": "name", "instrument_token": "equity_token"})
+    df = df.drop_duplicates("name")
+    log.info(f"Loaded {len(df)} NSE equity instruments.")
     return df
 
 # ─────────────────────────────────────────────────────────────────────────────
