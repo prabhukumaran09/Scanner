@@ -21,7 +21,7 @@ import logging
 import requests
 import pandas as pd
 import numpy as np
-from datetime import datetime, date, time as dtime
+from datetime import datetime, date, time as dtime, timedelta
 import pytz
 from kiteconnect import KiteConnect
 
@@ -206,17 +206,21 @@ def compute_rsi(prices: pd.Series, period: int = 14) -> float:
 
 def compute_vwap(df: pd.DataFrame) -> float:
     """
-    Intraday VWAP calculated from market open of the day.
+    Intraday VWAP using TODAY's candles only — resets at 9:15 AM each day.
     Formula: VWAP = Σ(Typical Price × Volume) / Σ(Volume)
              Typical Price = (High + Low + Close) / 3
 
-    Using cumulative VWAP — the value shown is the running average
-    from 9:15 AM to the latest candle.
+    df may contain yesterday + today candles (for RSI warmup),
+    so we filter to today before computing VWAP.
     """
-    if df.empty or df["volume"].sum() == 0:
+    if df.empty:
         return np.nan
-    tp   = (df["high"] + df["low"] + df["close"]) / 3
-    vwap = (tp * df["volume"]).cumsum() / df["volume"].cumsum()
+    today_str = date.today().isoformat()
+    today_df  = df[df["date"].dt.date.astype(str) == today_str]
+    if today_df.empty or today_df["volume"].sum() == 0:
+        return np.nan
+    tp   = (today_df["high"] + today_df["low"] + today_df["close"]) / 3
+    vwap = (tp * today_df["volume"]).cumsum() / today_df["volume"].cumsum()
     return round(float(vwap.iloc[-1]), 4)
 
 
@@ -242,12 +246,29 @@ def volume_above_ma(volumes: pd.Series, period: int = 20) -> tuple:
 # ─────────────────────────────────────────────────────────────────────────────
 # CANDLE FETCH
 # ─────────────────────────────────────────────────────────────────────────────
+def get_prev_trading_day(ref: date) -> date:
+    """
+    Returns the previous trading day (Mon–Fri) before ref.
+    Skips weekends — does not account for market holidays.
+    """
+    prev = ref - timedelta(days=1)
+    while prev.weekday() >= 5:   # 5=Sat, 6=Sun
+        prev -= timedelta(days=1)
+    return prev
+
+
 def fetch_candles(instrument_token: int, interval: str = "5minute") -> pd.DataFrame:
+    """
+    Fetches candles from previous trading day + today so that RSI
+    has sufficient history (RSI_PERIOD candles) right from 9:15 AM.
+    VWAP is computed only on today's candles via compute_vwap_today().
+    """
     today = date.today()
+    prev  = get_prev_trading_day(today)
     try:
         candles = kite.historical_data(
             instrument_token=instrument_token,
-            from_date=today,
+            from_date=prev,         # start from previous trading day
             to_date=today,
             interval=interval
         )
@@ -259,6 +280,7 @@ def fetch_candles(instrument_token: int, interval: str = "5minute") -> pd.DataFr
             "open": float, "high": float,
             "low": float, "close": float, "volume": float
         })
+        df["date"] = pd.to_datetime(df["date"])
         return df
     except Exception as e:
         log.debug(f"Candle fetch failed for token {instrument_token}: {e}")
