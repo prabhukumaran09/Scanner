@@ -15,6 +15,7 @@ Hosted free on GitHub Actions.
 """
 
 import os
+import sys
 import time
 import logging
 import requests
@@ -422,9 +423,16 @@ def main():
             alerted_symbols.clear()
 
         if not is_market_open():
-            log.info("Market closed. Sleeping 60s...")
-            time.sleep(60)
-            continue
+            now_ist = datetime.now(IST)
+            msg = (
+                f"\U0001f534 <b>FNO Scanner \u2014 Market Closed</b>\n"
+                f"Time: {now_ist.strftime('%d-%b-%Y %H:%M')} IST\n"
+                f"Market hours: 09:15 AM \u2013 03:30 PM IST (Mon\u2013Fri)\n"
+                f"Scanner will auto-start on next trading day at 9:15 AM."
+            )
+            log.info("Market is closed. Sending Telegram alert and exiting.")
+            send_telegram(msg)
+            sys.exit(0)
 
         if universe_df.empty:
             log.warning("Universe is empty — check Kite API credentials.")
